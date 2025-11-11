@@ -16,12 +16,28 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Prepare libraries
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: false
+
+      - name: Force Poetry to use project venv (avoid touching system python)
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+          poetry config experimental.new-installer false || true
+          poetry --version
+
+      - name: Prepare libraries (use local .venv, non-interactive)
+        env:
+          POETRY_VIRTUALENVS_CREATE: "true"
+          POETRY_VIRTUALENVS_IN_PROJECT: "true"
+          POETRY_NO_INTERACTION: "1"
         run: |
           chmod +x ./Telegram/build/prepare/linux.sh
           ./Telegram/build/prepare/linux.sh
 
-      - name: Build project (Release)
+      - name: Build project (Release) inside Docker
         run: |
           docker run --rm \
             -u $(id -u) \
