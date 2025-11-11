@@ -1,0 +1,92 @@
+name: Build AyuGramDesktop (Linux Docker)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # --- Poetry cache ---
+      - name: Cache Poetry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.local/share/pypoetry
+            ~/.cache/pip
+          key: poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: false
+
+      # --- Cache for tdesktop build deps (e.g. linux.sh) ---
+      - name: Cache third-party libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            Telegram/build/third_party
+            Telegram/build/Dependencies
+          key: libs-${{ runner.os }}-${{ hashFiles('Telegram/build/prepare/linux.sh') }}
+          restore-keys: |
+            libs-${{ runner.os }}-
+
+      - name: Prepare libraries
+        run: |
+          chmod +x ./Telegram/build/prepare/linux.sh
+          ./Telegram/build/prepare/linux.sh
+
+      # --- Docker layer cache ---
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: docker-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            docker-${{ runner.os }}-
+
+      - name: Build project (Release)
+        run: |
+          docker run --rm \
+            -u $(id -u) \
+            -v "$PWD:/usr/src/tdesktop" \
+            -v /tmp/.buildx-cache:/root/.cache \
+            ghcr.io/telegramdesktop/tdesktop/centos_env:latest \
+            /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+            -D TDESKTOP_API_ID=2040 \
+            -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+
+      # --- Cache build outputs (helps restart mid-way) ---
+      - name: Cache build outputs
+        uses: actions/cache@v4
+        with:
+          path: out
+          key: out-${{ runner.os }}-${{ github.ref_name }}
+          restore-keys: |
+            out-${{ runner.os }}-
+
+      - name: Strip binaries
+        run: |
+          find out -type f -executable -exec strip {} + || true
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayugram-linux-build
+          path: out
